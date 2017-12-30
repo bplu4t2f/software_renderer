@@ -23,22 +23,29 @@ struct Line
 
 struct Renderer_State
 {
+	// Actually we shouldn't call this RGBA. It doesn't matter what the pixel format is,
+	// so it's more beneficial to define this so that it matches the surface's pixel
+	// format, so that we can optimize the fragment shader as much as possible.
 	uint32_t color_rgba;
 	SDL_Surface *surface;
 };
 
 static void fragment_shader(void *user_state, int x, int y, int alpha)
 {
+	// If anyone passes NULL or something that isn't a valid Renderer_State,
+	// it's their fault for crashing the program.
 	Renderer_State *state = (Renderer_State*)user_state;
+	SDL_Surface *surface = state->surface;
 
 	// "Scissor test" using the entire thing as clipping region
-	if (x < 0 || x >= state->surface->w || y < 0 || y >= state->surface->h)
+	if (x < 0 || x >= surface->w || y < 0 || y >= surface->h)
 	{
 		return;
 	}
 
-	int offset = y * state->surface->pitch + x * state->surface->format->BytesPerPixel;
-	uint32_t *pixel = (uint32_t *)((char *)state->surface->pixels + offset);
+	int offset = y * surface->pitch + x * surface->format->BytesPerPixel;
+	uint32_t *pixel = (uint32_t *)((char *)surface->pixels + offset);
+	// TODO: This assumes RGBA pixel format. Check surface->format and act accordingly.
 	uint32_t rgb = state->color_rgba & 0xffffff;
 	// TODO: Fix rounding error
 	uint32_t a = (((state->color_rgba >> 24) * alpha) >> 8);
@@ -63,6 +70,10 @@ static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
 		state.color_rgba = 0xffffff00;
 		rasterize_line_xiaolin_wu(&context, it->x1, it->y1, it->x2, it->y2, true);
 	}
+
+	// Jelly Triangle.
+	state.color_rgba = 0xffff00ff;
+	fill_triangle(&context, 2.0f, 1.0f, 25.0f, 2.0f, 3.0f, 14.0f);
 }
 
 int main(int argc, char **argv)

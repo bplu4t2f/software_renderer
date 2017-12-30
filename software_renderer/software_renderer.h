@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #ifdef __INTELLISENSE__
 #define SOFTWARE_RENDERER_IMPLEMENTATIONS
@@ -18,10 +18,14 @@ using namespace std;
 
 // Add __declspec(dllexport) for example, or change it to static
 // SEARCH FOR THIS TO FIND ALL API FUNCTIONS
+#ifndef SOFTWARE_RENDERER_API
 #define SOFTWARE_RENDERER_API extern
+#endif
 
 // Use this to define __stdcall for example
+#ifndef SOFTWARE_RENDERER_ENTRY
 #define SOFTWARE_RENDERER_ENTRY
+#endif
 
 // Sorry for the OOP bullshit. This is needed to allow implementors to specify a custom fragment shader
 // so that we don't have to deal with clamping, colors, pixel format, or alpha blending.
@@ -34,32 +38,65 @@ struct Software_Renderer_Context
 };
 
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
-
-struct Point
-{
-	float x, y;
-};
-
 static void set_pixel(struct Software_Renderer_Context *context, int x, int y, int alpha, bool transpose)
 {
 	if (transpose)
 	{
 		swap(x, y);
 	}
-
 	context->fragment_shader(context->fragment_shader_user_state, x, y, alpha);
 }
+
+template <typename T>
+static int sgn(T val)
+{
+	return (T(0) < val) - (val < T(0));
+}
+
+template <typename T>
+static T min(T a, T b)
+{
+	return a < b ? a : b;
+}
+
+template <typename T>
+static T max(T a, T b)
+{
+	return a < b ? b : a;
+}
+#endif
+
+
+// ██████╗  █████╗ ██████╗     ██████╗ ██╗ █████╗ ███╗   ███╗ ██████╗ ███╗   ██╗██████╗     ███████╗██╗  ██╗██╗████████╗
+// ██╔══██╗██╔══██╗██╔══██╗    ██╔══██╗██║██╔══██╗████╗ ████║██╔═══██╗████╗  ██║██╔══██╗    ██╔════╝╚██╗██╔╝██║╚══██╔══╝
+// ██████╔╝███████║██║  ██║    ██║  ██║██║███████║██╔████╔██║██║   ██║██╔██╗ ██║██║  ██║    █████╗   ╚███╔╝ ██║   ██║
+// ██╔══██╗██╔══██║██║  ██║    ██║  ██║██║██╔══██║██║╚██╔╝██║██║   ██║██║╚██╗██║██║  ██║    ██╔══╝   ██╔██╗ ██║   ██║
+// ██████╔╝██║  ██║██████╔╝    ██████╔╝██║██║  ██║██║ ╚═╝ ██║╚██████╔╝██║ ╚████║██████╔╝    ███████╗██╔╝ ██╗██║   ██║
+// ╚═════╝ ╚═╝  ╚═╝╚═════╝     ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═════╝     ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝
+//
+// ██╗███╗   ███╗██████╗ ██╗     ███████╗███╗   ███╗███████╗███╗   ██╗████████╗ █████╗ ████████╗██╗ ██████╗ ███╗   ██╗
+// ██║████╗ ████║██╔══██╗██║     ██╔════╝████╗ ████║██╔════╝████╗  ██║╚══██╔══╝██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║
+// ██║██╔████╔██║██████╔╝██║     █████╗  ██╔████╔██║█████╗  ██╔██╗ ██║   ██║   ███████║   ██║   ██║██║   ██║██╔██╗ ██║
+// ██║██║╚██╔╝██║██╔═══╝ ██║     ██╔══╝  ██║╚██╔╝██║██╔══╝  ██║╚██╗██║   ██║   ██╔══██║   ██║   ██║██║   ██║██║╚██╗██║
+// ██║██║ ╚═╝ ██║██║     ███████╗███████╗██║ ╚═╝ ██║███████╗██║ ╚████║   ██║   ██║  ██║   ██║   ██║╚██████╔╝██║ ╚████║
+// ╚═╝╚═╝     ╚═╝╚═╝     ╚══════╝╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+
+// (it's really bad don't use it)
+
+
+#ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
+
+struct Point
+{
+	float x, y;
+};
 
 // Given three colinear points p, q, r, the function checks if point q lies on line segment 'pr'
 static bool on_segment(Point p, Point q, Point r)
 {
+	// This is only needed for the BAD diamond exit implementation
 	return q.x <= fmax(p.x, r.x) && q.x >= fmin(p.x, r.x) &&
 		q.y <= fmax(p.y, r.y) && q.y >= fmin(p.y, r.y);
-}
-
-template <typename T> int sgn(T val)
-{
-	return (T(0) < val) - (val < T(0));
 }
 
 // Finds the orientation of ordered triplet (p, q, r).
@@ -68,6 +105,7 @@ template <typename T> int sgn(T val)
 // -1: negative (clockwise)
 static int orientation(Point p, Point q, Point r)
 {
+	// This is only needed for the BAD diamond exit implementation
 	// See https://www.geeksforgeeks.org/orientation-3-ordered-points/ for details of below formula.
 	float val = (q.x - p.x) * (r.y - q.y) - (q.y - p.y) * (r.x - q.x);
 	return sgn(val);
@@ -76,6 +114,7 @@ static int orientation(Point p, Point q, Point r)
 // Returns true if line segment 'p1q1' and 'p2q2' intersect.
 static bool doIntersect(Point p1, Point q1, Point p2, Point q2)
 {
+	// This is only needed for the BAD diamond exit implementation
 	// Find the four orientations needed for general and
 	// special cases
 	int o1 = orientation(p1, q1, p2);
@@ -126,6 +165,7 @@ static bool doIntersect(Point p1, Point q1, Point p2, Point q2)
 // before calling this (because if it is, the pixel should not be rasterized).
 static bool consider_pixel_for_diamond_rasterization(Point p1, Point q1, int x, int y)
 {
+	// This is only needed for the BAD diamond exit implementation
 	// a /\ d 
 	//  /  \  
 	// /  e \ 
@@ -206,6 +246,126 @@ static int consider_y_major_row(Point p1, Point q1, float dx, float dy, int y)
 }
 #endif
 
+// Rasterizes a 1-width line from start point (x1, y1) to end point (x2, y2) according to the diamond exit rule.
+// Integer coordinates refer to pixel boundaries (in other words, pixel centers are always some integer number + 0.5f).
+// This produced an aliased line. As such, width can only be an integer.
+// TODO: Disambiguate corner case when the line passes exactly through the corners of 2 adjacent (wrt the minor direction) diamonds.
+SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_diamond_exit(Software_Renderer_Context *context, float x1, float y1, float x2, float y2, int width)
+#ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
+{
+	// DONT BOTHER WITH THIS, ITS BAD.
+
+	int start_pixel_x = (int)x1;
+	int start_pixel_y = (int)y1;
+	int end_pixel_x = (int)x2;
+	int end_pixel_y = (int)y2;
+
+	int dx_quantized = end_pixel_x - start_pixel_x;
+	int dy_quantized = end_pixel_y - start_pixel_y;
+
+	bool y_major = abs(dy_quantized) >= abs(dx_quantized);
+	if (!y_major)
+	{
+		{
+			float tmp;
+			tmp = x1;
+			x1 = y1;
+			y1 = tmp;
+			tmp = x2;
+			x2 = y2;
+			y2 = tmp;
+		}
+		{
+			int tmp;
+			tmp = start_pixel_x;
+			start_pixel_x = start_pixel_y;
+			start_pixel_y = tmp;
+			tmp = end_pixel_x;
+			end_pixel_x = end_pixel_y;
+			end_pixel_y = tmp;
+		}
+	}
+
+	float dx = x2 - x1;
+	float dy = y2 - y1;
+
+	// Offset the minor direction so that we can draw the width directly.
+	// This particular strategy came to my mind when I was trying to sleep yesterday:
+	if (width > 1)
+	{
+		float offset = (width - 1) / 2.0f;
+		x1 -= offset;
+		x2 -= offset;
+	}
+
+	// For the doIntersect function.
+	Point p1;
+	p1.x = x1;
+	p1.y = y1;
+	Point q1;
+	q1.x = x2;
+	q1.y = y2;
+
+	// We can assume that the line is y-major.
+	// However, no assumptions about the direction can be made.
+	// Both dx and dy may be positive or negative.
+
+	int y_step = dy > 0 ? 1 : -1;
+	// a /\ d 
+	//  /  \  
+	// /  e \ 
+	// \    / 
+	//  \  /  
+	// b \/ c 
+
+	// This loop counts for everything except the end point, which is treated separately.
+
+	// For all points excluding the end point, a pixel is rasterized if the line
+	// being drawn intersects any of the 4 lines that make up the pixel inscribed diamond.
+	// The reason is that if it crosses any line, that means the line either just left the
+	// diamond, or it entered the diamond and must eventually exit in order to get to the
+	// end point.
+	int y;
+	for (y = start_pixel_y; y != end_pixel_y; y += y_step)
+	{
+		int draw_x = consider_y_major_row(p1, q1, dx, dy, y);
+		if (draw_x >= 0)
+		{
+			for (int i = 0; i < width; ++i)
+			{
+				set_pixel(context, draw_x + i, y, 255, !y_major);
+			}
+		}
+	}
+
+	// The end point is only considered if it is not inside the diamond of the end pixel.
+	float end_pixel_center_x = end_pixel_x + 0.5f;
+	float end_pixel_center_y = end_pixel_y + 0.5f;
+	if (fabs(x2 - end_pixel_center_x) + fabs(y2 - end_pixel_center_y) > 0.5f)
+	{
+		int draw_x = consider_y_major_row(p1, q1, dx, dy, y);
+		if (draw_x >= 0)
+		{
+			for (int i = 0; i < width; ++i)
+			{
+				set_pixel(context, draw_x + i, y, 255, !y_major);
+			}
+		}
+	}
+}
+#else
+	;
+#endif
+
+
+
+
+// ██╗  ██╗██╗ █████╗  ██████╗ ██╗     ██╗███╗   ██╗    ██╗    ██╗██╗   ██╗
+// ╚██╗██╔╝██║██╔══██╗██╔═══██╗██║     ██║████╗  ██║    ██║    ██║██║   ██║
+//  ╚███╔╝ ██║███████║██║   ██║██║     ██║██╔██╗ ██║    ██║ █╗ ██║██║   ██║
+//  ██╔██╗ ██║██╔══██║██║   ██║██║     ██║██║╚██╗██║    ██║███╗██║██║   ██║
+// ██╔╝ ██╗██║██║  ██║╚██████╔╝███████╗██║██║ ╚████║    ╚███╔███╔╝╚██████╔╝
+// ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝     ╚══╝╚══╝  ╚═════╝ 
 
 
 // Xiaolin Wu's anti-aliased line rasterization algorithm.
@@ -294,6 +454,14 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 #else
 ;
 #endif
+
+
+//  ██████╗ ██████╗ ███████╗███████╗███████╗███╗   ██╗██╗  ██╗ █████╗ ███╗   ███╗    ██╗     ██╗███╗   ██╗███████╗
+//  ██╔══██╗██╔══██╗██╔════╝██╔════╝██╔════╝████╗  ██║██║  ██║██╔══██╗████╗ ████║    ██║     ██║████╗  ██║██╔════╝
+//  ██████╔╝██████╔╝█████╗  ███████╗█████╗  ██╔██╗ ██║███████║███████║██╔████╔██║    ██║     ██║██╔██╗ ██║█████╗  
+//  ██╔══██╗██╔══██╗██╔══╝  ╚════██║██╔══╝  ██║╚██╗██║██╔══██║██╔══██║██║╚██╔╝██║    ██║     ██║██║╚██╗██║██╔══╝  
+//  ██████╔╝██║  ██║███████╗███████║███████╗██║ ╚████║██║  ██║██║  ██║██║ ╚═╝ ██║    ███████╗██║██║ ╚████║███████╗
+//  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
 
 
 // Rasterizes a line using Bresenham's algorithm.
@@ -420,108 +588,86 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 
 
 
-// Rasterizes a 1-width line from start point (x1, y1) to end point (x2, y2) according to the diamond exit rule.
-// Integer coordinates refer to pixel boundaries (in other words, pixel centers are always some integer number + 0.5f).
-// This produced an aliased line. As such, width can only be an integer.
-// TODO: Disambiguate corner case when the line passes exactly through the corners of 2 adjacent (wrt the minor direction) diamonds.
-SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_diamond_exit(Software_Renderer_Context *context, float x1, float y1, float x2, float y2, int width)
+
+//  ███████╗██╗██╗     ██╗         ████████╗██████╗ ██╗ █████╗ ███╗   ██╗ ██████╗ ██╗     ███████╗
+//  ██╔════╝██║██║     ██║         ╚══██╔══╝██╔══██╗██║██╔══██╗████╗  ██║██╔════╝ ██║     ██╔════╝
+//  █████╗  ██║██║     ██║            ██║   ██████╔╝██║███████║██╔██╗ ██║██║  ███╗██║     █████╗  
+//  ██╔══╝  ██║██║     ██║            ██║   ██╔══██╗██║██╔══██║██║╚██╗██║██║   ██║██║     ██╔══╝  
+//  ██║     ██║███████╗███████╗       ██║   ██║  ██║██║██║  ██║██║ ╚████║╚██████╔╝███████╗███████╗
+//  ╚═╝     ╚═╝╚══════╝╚══════╝       ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝
+
+
+SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
+	Software_Renderer_Context *context,
+	float x1, float y1, float x2, float y2, float x3, float y3
+)
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
 {
-	int start_pixel_x = (int)x1;
-	int start_pixel_y = (int)y1;
-	int end_pixel_x = (int)x2;
-	int end_pixel_y = (int)y2;
+	// So apparently we need to convert each rasterized pixel's coordinates
+	// into barycentric coordinates sooner or later anyway because we need
+	// a way to interpolate vertex colors and texture coordinates.
 
-	int dx_quantized = end_pixel_x - start_pixel_x;
-	int dy_quantized = end_pixel_y - start_pixel_y;
+	// The vertex colors weights of a fragment are equal to the barycentric
+	// coordinates of a fragment, which is nice because then the fragment
+	// shader only needs to add weighted colors.
+	
+	// The texture coordinates are slightly more difficult and it seems a bit
+	// strange. First we convert from xy coordinates to barycentric coordinates
+	// in the drawn vertex triangle, and then we convert the barycentric coordinates
+	// back to st coordinates in the texture triangle. Seems inefficient but
+	// let's just go with it.
 
-	bool y_major = abs(dy_quantized) >= abs(dx_quantized);
-	if (!y_major)
+	// First we need to find all fragments that should be rasterized, i.e. all
+	// fragments whose sample point(s) lie inside of the triangle defined by
+	// the given vertices, OR lie on the edge of the triangle, but only if it
+	// is either the top or left edge. Otherwise, two triangles sharing an edge
+	// would produce duplicate fragments, which we must avoid because that could
+	// really screw over alpha blending.
+
+	// Currently we're just considering every pixel in the triangle's bounding
+	// box and check if its barycentric coordinates are in the range [0 .. 1].
+	// TODO see if it's worth optimizing this. The bounding box also snaps to
+	// integer bounds because we're dealing with pixels after all.
+
+	int bounding_box_min_x = (int)floorf(min(x1, min(x2, x3)));
+	int bounding_box_max_x = (int)ceilf((x1, max(x2, x3)));
+	int bounding_box_min_y = (int)floorf(min(y1, min(y2, y3)));
+	int bounding_box_max_y = (int)ceilf(max(y1, max(y2, y3)));
+
+	for (int y = bounding_box_min_y; y <= bounding_box_max_y; ++y)
 	{
+		for (int x = bounding_box_min_x; x <= bounding_box_max_x; ++x)
 		{
-			float tmp;
-			tmp = x1;
-			x1 = y1;
-			y1 = tmp;
-			tmp = x2;
-			x2 = y2;
-			y2 = tmp;
-		}
-		{
-			int tmp;
-			tmp = start_pixel_x;
-			start_pixel_x = start_pixel_y;
-			start_pixel_y = tmp;
-			tmp = end_pixel_x;
-			end_pixel_x = end_pixel_y;
-			end_pixel_y = tmp;
-		}
-	}
+			float center_x = (float)x + 0.5f;
+			float center_y = (float)y + 0.5f;
 
-	float dx = x2 - x1;
-	float dy = y2 - y1;
+			// Dis straight from wikipedia
+			float denom_rec = 1.0f / ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3));
+			float dx_base = (center_x - x3);
+			float dy_base = (center_y - y3);
+			float bary1 = ((y2 - y3) * dx_base + (x3 - x2) * dy_base) * denom_rec;
+			float bary2 = ((y3 - y1) * dx_base + (x1 - x3) * dy_base) * denom_rec;
+			float bary3 = 1.0f - bary1 - bary2;
 
-	// Offset the minor direction so that we can draw the width directly.
-	// This particular strategy came to my mind when I was trying to sleep yesterday:
-	if (width > 1)
-	{
-		float offset = (width - 1) / 2.0f;
-		x1 -= offset;
-		x2 -= offset;
-	}
+			// Great !!
 
-	// For the doIntersect function.
-	Point p1;
-	p1.x = x1;
-	p1.y = y1;
-	Point q1;
-	q1.x = x2;
-	q1.y = y2;
+			// Point is inside if all bary coordinates are in the range 0 .. 1. If one
+			// coordinate is exactly 0 or 1, then it's either exactly on an edge or
+			// on a corner.
+			
+			// TODO: Disambiguate !! Make sure that triangles 2 which share an edge
+			// do not produce the same fragments twice. For example we could make it so
+			// that if a sample is exactly on the edge of a triangle, it only produces the fragment
+			// if that edge is the top or left edge (whatever that means...)
 
-	// We can assume that the line is y-major.
-	// However, no assumptions about the direction can be made.
-	// Both dx and dy may be positive or negative.
-
-	int y_step = dy > 0 ? 1 : -1;
-	// a /\ d 
-	//  /  \  
-	// /  e \ 
-	// \    / 
-	//  \  /  
-	// b \/ c 
-
-	// This loop counts for everything except the end point, which is treated separately.
-
-	// For all points excluding the end point, a pixel is rasterized if the line
-	// being drawn intersects any of the 4 lines that make up the pixel inscribed diamond.
-	// The reason is that if it crosses any line, that means the line either just left the
-	// diamond, or it entered the diamond and must eventually exit in order to get to the
-	// end point.
-	int y;
-	for (y = start_pixel_y; y != end_pixel_y; y += y_step)
-	{
-		int draw_x = consider_y_major_row(p1, q1, dx, dy, y);
-		if (draw_x >= 0)
-		{
-			for (int i = 0; i < width; ++i)
+			if (bary1 < 0.0f || bary1 > 1.0f || bary2 < 0.0f || bary2 > 1.0f || bary3 < 0.0f || bary3 > 1.0f)
 			{
-				set_pixel(context, draw_x + i, y, 255, !y_major);
+				// Outside
+				continue;
 			}
-		}
-	}
 
-	// The end point is only considered if it is not inside the diamond of the end pixel.
-	float end_pixel_center_x = end_pixel_x + 0.5f;
-	float end_pixel_center_y = end_pixel_y + 0.5f;
-	if (fabs(x2 - end_pixel_center_x) + fabs(y2 - end_pixel_center_y) > 0.5f)
-	{
-		int draw_x = consider_y_major_row(p1, q1, dx, dy, y);
-		if (draw_x >= 0)
-		{
-			for (int i = 0; i < width; ++i)
-			{
-				set_pixel(context, draw_x + i, y, 255, !y_major);
-			}
+			// TODO weighting Ehhh??
+			context->fragment_shader(context->fragment_shader_user_state, x, y, 255);
 		}
 	}
 }
