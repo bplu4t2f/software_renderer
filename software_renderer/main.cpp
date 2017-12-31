@@ -26,11 +26,12 @@ struct Renderer_State
 	// Actually we shouldn't call this RGBA. It doesn't matter what the pixel format is,
 	// so it's more beneficial to define this so that it matches the surface's pixel
 	// format, so that we can optimize the fragment shader as much as possible.
-	uint32_t color_rgba;
+	// Stores one color per vertex.
+	uint32_t color_rgba[3];
 	SDL_Surface *surface;
 };
 
-static void fragment_shader(void *user_state, int x, int y, int alpha)
+static void fragment_shader(void *user_state, int x, int y, int alpha, float bary1, float bary2, float bary3)
 {
 	// If anyone passes NULL or something that isn't a valid Renderer_State,
 	// it's their fault for crashing the program.
@@ -43,14 +44,64 @@ static void fragment_shader(void *user_state, int x, int y, int alpha)
 		return;
 	}
 
+	// INTERPOLATION according to the barycentric coordinates !!
+	// In case of lines, bary3 is always 0. So we just treat it the same way as with a triangle
+	// and everything will be fine.
+	// We take the color component of each vertex from "state". Then we weight the vertexes according
+	// to the barycentric coordinates.
+	// This is equivalent to:
+	// C = row_vector(C1, C2, C3) * col_vector(bary1, bary2, bary3).
+	// Well mathematically we can also do it all at once by adding more rows to the left operand.
+	// That convertes the row_vector to a matrix with one row per color component (4x3 matrix).
+
+	// TODO: Fix rounding error
+	int bary[3] = { (int)(bary1 * 255.0f), (int)(bary2 * 255.0f), (int)(bary3 * 255.0f) };
+
+	uint32_t result_rgba = 0;
+	// BIGGEST TODO: Yeah quantized fix point division bit shift arithmetic magic wasn't a good idea.
+	// When have two vertices, each with a value of 0xff, and you have weights of exactly 0.5, then that
+	// will be converted to 0x7f and then added together, which is 0xfe.
+	// In other words, this is fast but inaccurate.
+	// TODO: This assumes RGBA pixel format. Check surface->format and act accordingly.
+	for (int color_component = 0; color_component < 4; ++color_component)
+	{
+		int shift = color_component * 8;
+		static_assert(sizeof(state->color_rgba) / sizeof(state->color_rgba[0]) == 3, "Renderer state must contain 3 vertices");
+		int result = 0;
+		for (int vertex = 0; vertex < 3; ++vertex)
+		{
+			// TODO: Fix rounding error
+			result += (((state->color_rgba[vertex] >> shift) & 0xff) * (bary[vertex] + 1)) >> 8;
+		}
+#ifdef DEBUG
+		if (result < 0 || result > 255)
+		{
+			// bogus math
+			SDL_assert(false);
+		}
+#endif
+
+		// TODO: This assumes RGBA pixel format. Check surface->format and act accordingly.
+		// TODO: This generally sucks really bad tbh
+		if (color_component == 3)
+		{
+			// Alpha component -> We need to scale it with "alpha" as well. This is important
+			// if a fragment is only partially covered.
+			result = (result * (alpha + 1)) >> 8;
+		}
+
+		result_rgba |= result << shift;
+	}
+
+	if (x == 13 && y == 1)
+	{
+		int j = 5;
+	}
+
 	int offset = y * surface->pitch + x * surface->format->BytesPerPixel;
 	uint32_t *pixel = (uint32_t *)((char *)surface->pixels + offset);
-	// TODO: This assumes RGBA pixel format. Check surface->format and act accordingly.
-	uint32_t rgb = state->color_rgba & 0xffffff;
-	// TODO: Fix rounding error
-	uint32_t a = (((state->color_rgba >> 24) * alpha) >> 8);
 	// TODO: Implement alpha compositing. HA!
-	*pixel = rgb | (a << 24);
+	*pixel = result_rgba;
 }
 
 static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
@@ -61,18 +112,23 @@ static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
 	context.fragment_shader_user_state = &state;
 	context.fragment_shader = fragment_shader;
 
+
 	for (auto it = lines->begin(); it != lines->end(); ++it)
 	{
-		state.color_rgba = 0xffffffff;
+		state.color_rgba[0] = 0xffffffff;
+		state.color_rgba[1] = 0xffffffff;
 		rasterize_line_diamond_exit(&context, it->x1, it->y1, it->x2, it->y2, 2);
-		state.color_rgba = 0xff00ffff;
+		state.color_rgba[1] = 0xff00ffff;
 		rasterize_line_bresenham(&context, it->x1, it->y1, it->x2, it->y2, 1);
-		state.color_rgba = 0xffffff00;
+		state.color_rgba[0] = 0xffff0000;
+		state.color_rgba[1] = 0xffffff00;
 		rasterize_line_xiaolin_wu(&context, it->x1, it->y1, it->x2, it->y2, true);
 	}
 
 	// Jelly Triangle.
-	state.color_rgba = 0xffff00ff;
+	state.color_rgba[0] = 0xffff00ff;
+	state.color_rgba[1] = 0xffffff00;
+	state.color_rgba[2] = 0x8000ffff;
 	fill_triangle(&context, 2.0f, 1.0f, 25.0f, 2.0f, 3.0f, 14.0f);
 }
 

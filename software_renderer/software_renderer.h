@@ -34,17 +34,19 @@ using namespace std;
 struct Software_Renderer_Context
 {
 	void *fragment_shader_user_state;
-	void(*fragment_shader)(void *user_state, int x, int y, int alpha);
+	// TODO interface kinda sucks. Maybe resort to vec3f. But I don't like shitty user defined throwaway
+	// types that only introduce friction.
+	void(*fragment_shader)(void *user_state, int x, int y, int alpha, float bary1, float bary2, float bary3);
 };
 
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
-static void set_pixel(struct Software_Renderer_Context *context, int x, int y, int alpha, bool transpose)
+static void set_pixel(struct Software_Renderer_Context *context, int x, int y, int alpha, bool transpose, float start_point_blend_ratio)
 {
 	if (transpose)
 	{
 		swap(x, y);
 	}
-	context->fragment_shader(context->fragment_shader_user_state, x, y, alpha);
+	context->fragment_shader(context->fragment_shader_user_state, x, y, alpha, start_point_blend_ratio, 1.0f - start_point_blend_ratio, 0.0f);
 }
 
 template <typename T>
@@ -63,6 +65,11 @@ template <typename T>
 static T max(T a, T b)
 {
 	return a < b ? b : a;
+}
+
+static float clampf(float f)
+{
+	return min(max(f, 0.0f), 1.0f);
 }
 #endif
 
@@ -333,7 +340,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_diamond_exit(S
 		{
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, draw_x + i, y, 255, !y_major);
+				set_pixel(context, draw_x + i, y, 255, !y_major, 1.0f /*too lazy to do this correctly*/);
 			}
 		}
 	}
@@ -348,7 +355,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_diamond_exit(S
 		{
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, draw_x + i, y, 255, !y_major);
+				set_pixel(context, draw_x + i, y, 255, !y_major, 1.0f /*too lazy to do this correctly*/);
 			}
 		}
 	}
@@ -400,6 +407,8 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 		x1 -= 0.5f * x_per_y_step;
 		x2 += 0.5f * x_per_y_step;
 		// We don't need to recalculate dx and dy because their absolute values are irrelevant at this point.
+		// In fact, if we recalculate dx and dy, the interpolation would work differently. Without recalculating,
+		// it saturates at the original endpoints.
 		// We don't need to recalculate x_per_y_step because that shouldn't change (unless this is bugged).s
 	}
 
@@ -446,8 +455,13 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 			alpha_l *= end_point_y_distance_to_outgoing_edge;
 			alpha_r *= end_point_y_distance_to_outgoing_edge;
 		}
-		set_pixel(context, x + 0, y, alpha_l * 255, !y_major);
-		set_pixel(context, x + 1, y, alpha_r * 255, !y_major);
+
+
+		// TODO optimize blend ratio - it was an afterthought...
+		float blend_ratio = clampf((((float)y + 0.5f) - y1) / dy);
+
+		set_pixel(context, x + 0, y, alpha_l * 255, !y_major, blend_ratio);
+		set_pixel(context, x + 1, y, alpha_r * 255, !y_major, blend_ratio);
 		interp_x_at_center_y += x_per_y_step;
 	}
 }
@@ -469,7 +483,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 // In fact, as far as I can tell, this is strictly superior to the other diamond rule algorithm, however may produce different
 // results in ambiguous cases (i.e. when the line crosses exactly through the corner of 2 adjacent inscribed diamonds).
 // TODO: Disambiguate corner case when the line passes exactly through the corners of 2 adjacent (wrt the minor direction) diamonds.
-// TODO: Prove mathematically that this actually implements the diamond exit strategy.
+// I'm pretty sure I can prove mathematically that this actually implements the diamond exit strategy.
 SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Software_Renderer_Context *context, float x1, float y1, float x2, float y2, int width)
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
 {
@@ -526,7 +540,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		{
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, start_pixel_x + i, start_pixel_y, 255, !y_major);
+				set_pixel(context, start_pixel_x + i, start_pixel_y, 255, !y_major, 1.0f /*too lazy*/);
 			}
 		}
 	}
@@ -558,7 +572,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		{
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, end_pixel_x + i, end_pixel_y, 255, !y_major);
+				set_pixel(context, end_pixel_x + i, end_pixel_y, 255, !y_major, 1.0f /*too lazy*/);
 			}
 		}
 	}
@@ -577,7 +591,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		int x = (int)interp_x_position_at_vertical_center;
 		for (int i = 0; i < width; ++i)
 		{
-			set_pixel(context, x + i, y, 255, !y_major);
+			set_pixel(context, x + i, y, 255, !y_major, 1.0f /*too lazy*/);
 		}
 		interp_x_position_at_vertical_center += x_per_y;
 	}
@@ -634,6 +648,20 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 	int bounding_box_min_y = (int)floorf(min(y1, min(y2, y3)));
 	int bounding_box_max_y = (int)ceilf(max(y1, max(y2, y3)));
 
+	// Dis straight from wikipedia
+	float denom = ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3));
+	// TODO: Rather than checking for 0, we should check for an Epsilon so small that if
+	// we were to divide by it, the result would get so stupidly large that any sensible
+	// calculations would be subject to significant floating point accuracy related errors.
+	if (denom == 0)
+	{
+		// My intuition says that this means the triangle is degenerate.
+		// TODO: Is this correct?
+		// No fragment will be rasterized.
+		return;
+	}
+	float denom_rec = 1.0f / denom;
+
 	for (int y = bounding_box_min_y; y <= bounding_box_max_y; ++y)
 	{
 		for (int x = bounding_box_min_x; x <= bounding_box_max_x; ++x)
@@ -641,13 +669,35 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 			float center_x = (float)x + 0.5f;
 			float center_y = (float)y + 0.5f;
 
-			// Dis straight from wikipedia
-			float denom_rec = 1.0f / ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3));
 			float dx_base = (center_x - x3);
 			float dy_base = (center_y - y3);
 			float bary1 = ((y2 - y3) * dx_base + (x3 - x2) * dy_base) * denom_rec;
 			float bary2 = ((y3 - y1) * dx_base + (x1 - x3) * dy_base) * denom_rec;
 			float bary3 = 1.0f - bary1 - bary2;
+
+			// An alternative approach would be to define point 3 as kind of the "origin"
+			// and then determine the weights of the lenghts from point 3 to the other points.
+			// I.e. solve this:
+			// bary1 * (x1 - x3) + bary2 * (x2 - x3) = x - x3
+			// bary1 * (y1 - y3) + bary2 * (y2 - y3) = y - y3
+			// Which vectorizes to
+			// row_vector(bary1, bary2, 1) * col_vector(x1 - x3, x2 - x3, x3 - x) = 0
+			// row_vector(bary1, bary2, 1) * col_vector(y1 - y3, y2 - y3, y3 - y) = 0
+			// A valid row vector that solves one of those equations is any vector that is
+			// perpendicular to the column vector in that equation.
+			// To find a vector that is perpendicular to both column vectors is found
+			// by calculating the cross product of both column vectors. That yields a vector like
+			// (A, B, C), which needs to substitue (bary1, bary2, 1). However, C obviously cannot
+			// be arbitrary, it must be 1.
+			// We can scale the vector (A, B, C) arbitrarily and it will still solve the linear
+			// system described above, because if we scale the right side (=0) by the same amount,
+			// nothing effectively changes.
+			// So we scale (A, B, C) by 1/C to get (A/C, B/C, 1) => bary1 = A/C, bary2 = B/C
+			// and bary3 = 1 - bary1 - bary2.
+			// The result is the same as C turns out to be (x1-x3)(y2-y3) - (x2-x3)(y1-y3), which
+			// coincidentally is the same as "denom_rec" above. My intuition says that this is the
+			// only division that needs to be done in the entire calculation, which also matches the
+			// other result. Also that's enough for me to believe that this algorithm works.
 
 			// Great !!
 
@@ -660,14 +710,17 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 			// that if a sample is exactly on the edge of a triangle, it only produces the fragment
 			// if that edge is the top or left edge (whatever that means...)
 
-			if (bary1 < 0.0f || bary1 > 1.0f || bary2 < 0.0f || bary2 > 1.0f || bary3 < 0.0f || bary3 > 1.0f)
+			// We actually don't need to check if either of them is greater than 1. Because then the
+			// only way one they could all sum up to exactly 1 is if at least one of the others is
+			// negative. And the definition of bary3 kind of makes sure that it always works that way.
+			if (bary1 < 0.0f || bary2 < 0.0f || bary3 < 0.0f)
 			{
 				// Outside
 				continue;
 			}
 
 			// TODO weighting Ehhh??
-			context->fragment_shader(context->fragment_shader_user_state, x, y, 255);
+			context->fragment_shader(context->fragment_shader_user_state, x, y, 255, bary1, bary2, bary3);
 		}
 	}
 }
