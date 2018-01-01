@@ -146,6 +146,7 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="software_renderer.cpp" />
+    <ClCompile Include="wavefront_obj.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\externals\SDL2\VisualC\SDL\SDL.vcxproj">
@@ -156,7 +157,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="model.h" />
     <ClInclude Include="software_renderer.h" />
+    <ClInclude Include="wavefront_obj.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

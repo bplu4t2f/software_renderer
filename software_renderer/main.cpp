@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "software_renderer.h"
+#include "model.h"
+//#include "wavefront_obj.h"
 
 using namespace std;
 
@@ -178,6 +180,30 @@ int main(int argc, char **argv)
 		printf("WARNING::::::::: for some reason, we must lock the surface.\n");
 	}
 
+	SDL_Surface *big_surface = SDL_CreateRGBSurface(0, window_x, window_y, 32, 0xff, 0xff00, 0xff0000, 0xff000000);
+	if (big_surface == NULL)
+	{
+		printf("big surface failed %s\n", SDL_GetError());
+		return 1;
+	}
+
+
+	Model octahedron;
+	octahedron.vertices.push_back(Vec3f(-1, 0, 0));
+	octahedron.vertices.push_back(Vec3f(+1, 0, 0));
+	octahedron.vertices.push_back(Vec3f(0, -1, 0));
+	octahedron.vertices.push_back(Vec3f(0, +1, 0));
+	octahedron.vertices.push_back(Vec3f(0, 0, -1));
+	octahedron.vertices.push_back(Vec3f(0, 0, +1));
+	octahedron.faces.push_back(Face(0, 2, 3));
+	octahedron.faces.push_back(Face(0, 3, 4));
+	octahedron.faces.push_back(Face(0, 4, 5));
+	octahedron.faces.push_back(Face(0, 5, 2));
+	octahedron.faces.push_back(Face(1, 2, 3));
+	octahedron.faces.push_back(Face(1, 3, 4));
+	octahedron.faces.push_back(Face(1, 4, 5));
+	octahedron.faces.push_back(Face(1, 5, 2));
+
 	vector<Line> lines;
 	lines.push_back(Line(2.5f, 2.5f, 4.5f, 6.5f));
 	lines.push_back(Line(12.5f, 6.5f, 14.5f, 2.5f));
@@ -190,15 +216,89 @@ int main(int argc, char **argv)
 	lines.push_back(Line(2.5f, 20.5f, 7.5f, 20.5f));
 	lines.push_back(Line(25.5f, 10.5f, 25.5f, 15.5f));
 
-	uint32_t before = SDL_GetTicks();
-	draw_scene(test_surface, &lines);
-	uint32_t elapsed = SDL_GetTicks() - before;
-	printf("render time: %u ms\n", elapsed);
+	{
+		uint32_t before = SDL_GetTicks();
+		int iterations = 0;
+		uint32_t elapsed;
+		while (1)
+		{
+			draw_scene(test_surface, &lines);
+			iterations += 1;
+			elapsed = SDL_GetTicks() - before;
+			if (elapsed >= 1000 || (iterations > 15 && elapsed > 100))
+			{
+				break;
+			}
+		}
+
+		double iterations_per_second = (double)iterations / (double)elapsed * 1000.0;
+		printf("line test rendering speed: %lf iterations/s\n", iterations_per_second);
+	}
+
+	{
+		uint32_t before = SDL_GetTicks();
+		int iterations = 0;
+		uint32_t elapsed;
+		while (1)
+		{
+			Renderer_State state;
+			state.surface = big_surface;
+			Software_Renderer_Context context;
+			context.fragment_shader_user_state = &state;
+			context.fragment_shader = fragment_shader;
+
+			for (auto &face : octahedron.faces)
+			{
+				static_assert(sizeof(face.vertices) / sizeof(face.vertices[0]) == 3, "Need 3 vertices per face");
+				Vec3f tmp_vertices[3];
+
+				for (int i = 0; i < 3; ++i)
+				{
+					// They start indexing at 1, wtf.
+					int vertex_index = face.vertices[i];
+					tmp_vertices[i] = octahedron.vertices[vertex_index];
+					// Some color based on the vertex index:
+					state.color_rgba[i] = 0xff000000 |
+						(vertex_index & 1) * 255 |
+						((vertex_index & 2) * 255) << 8 |
+						((vertex_index & 4) * 255) << 16;
+				}
+
+				// Projection + Viewport Transform
+				// TODO put this is a vertex shader
+				// TODO implement vertex shading in the first place :/
+				for (int i = 0; i < 3; ++i)
+				{
+					tmp_vertices[i].x = tmp_vertices[i].x * 200.0f + window_x / 2;
+					tmp_vertices[i].y = tmp_vertices[i].y * 200.0f + window_y / 2;
+				}
+
+				fill_triangle(&context, tmp_vertices[0].x, tmp_vertices[0].y, tmp_vertices[1].x, tmp_vertices[1].y, tmp_vertices[2].x, tmp_vertices[2].y);
+			}
+
+			iterations += 1;
+			elapsed = SDL_GetTicks() - before;
+			if (elapsed >= 1000 || (iterations > 15 && elapsed > 100))
+			{
+				break;
+			}
+		}
+
+		double iterations_per_second = (double)iterations / (double)elapsed * 1000.0;
+		printf("octahedron rendering speed: %lf iterations/s\n", iterations_per_second);
+	}
 
 	SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, test_surface);
 	if (texture == NULL)
 	{
-		printf("texture failed\n", SDL_GetError());
+		printf("texture failed %s\n", SDL_GetError());
+		return 1;
+	}
+
+	SDL_Texture *big_texture = SDL_CreateTextureFromSurface(renderer, big_surface);
+	if (big_texture == NULL)
+	{
+		printf("big texture failed %s\n", SDL_GetError());
 		return 1;
 	}
 
@@ -248,12 +348,14 @@ int main(int argc, char **argv)
 
 		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 		SDL_RenderCopy(renderer, texture, NULL, NULL);
-
+		
 		SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
 		for (auto it = lines.begin(); it != lines.end(); ++it)
 		{
 			SDL_RenderDrawLine(renderer, it->x1 * mag, it->y1 * mag, it->x2 * mag, it->y2 * mag);
 		}
+
+		SDL_RenderCopy(renderer, big_texture, NULL, NULL);
 
 		SDL_RenderPresent(renderer);
 	}

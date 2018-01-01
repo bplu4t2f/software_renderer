@@ -5,7 +5,6 @@
 #endif
 
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
-#include <SDL.h>
 #include <stdint.h>
 #include <math.h>
 
@@ -644,7 +643,7 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 	// integer bounds because we're dealing with pixels after all.
 
 	int bounding_box_min_x = (int)floorf(min(x1, min(x2, x3)));
-	int bounding_box_max_x = (int)ceilf((x1, max(x2, x3)));
+	int bounding_box_max_x = (int)ceilf(max(x1, max(x2, x3)));
 	int bounding_box_min_y = (int)floorf(min(y1, min(y2, y3)));
 	int bounding_box_max_y = (int)ceilf(max(y1, max(y2, y3)));
 
@@ -666,6 +665,11 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 	{
 		for (int x = bounding_box_min_x; x <= bounding_box_max_x; ++x)
 		{
+			if (x == 410 && y == 106)
+			{
+				int j = 5;
+			}
+
 			float center_x = (float)x + 0.5f;
 			float center_y = (float)y + 0.5f;
 
@@ -719,7 +723,6 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY fill_triangle(
 				continue;
 			}
 
-			// TODO weighting Ehhh??
 			context->fragment_shader(context->fragment_shader_user_state, x, y, 255, bary1, bary2, bary3);
 		}
 	}
