@@ -23,6 +23,53 @@ struct Line
 	float x1, y1, x2, y2;
 };
 
+template<typename T>
+struct Buffer
+{
+	Buffer()
+		: data(NULL), size(0)
+	{
+	}
+
+	Buffer(int size)
+		: data(new T[size]), size(size)
+	{
+		this->zero_entire_buffer();
+	}
+
+	Buffer(Buffer &copy) = delete;
+
+	Buffer(Buffer &&move)
+	{
+		this->data = move.data;
+		this->size = move.size;
+		move.data = NULL;
+		move.size = 0;
+	}
+
+	void resize(int size)
+	{
+		delete this->data;
+		this->data = new T[size];
+		this->size = size;
+		this->zero_entire_buffer();
+	}
+
+	void zero_entire_buffer()
+	{
+		memset(this->data, 0, size * sizeof(T));
+	}
+
+	T *data;
+	int size;
+
+	~Buffer()
+	{
+		delete this->data;
+		this->size = 0;
+	}
+};
+
 struct Renderer_State
 {
 	// Actually we shouldn't call this RGBA. It doesn't matter what the pixel format is,
@@ -31,6 +78,10 @@ struct Renderer_State
 	// Stores one color per vertex.
 	uint32_t color_rgba[3];
 	SDL_Surface *surface;
+	// If this is null, z buffer test is disabled.
+	Buffer<float> *z_buffer = NULL;
+	// Vertices of the triangle being rasterized; includes z coordinates.
+	Vec3f vertices[3];
 };
 
 static void fragment_shader(void *user_state, int x, int y, int alpha, float bary1, float bary2, float bary3)
@@ -68,7 +119,7 @@ static void fragment_shader(void *user_state, int x, int y, int alpha, float bar
 	for (int color_component = 0; color_component < 4; ++color_component)
 	{
 		int shift = color_component * 8;
-		static_assert(sizeof(state->color_rgba) / sizeof(state->color_rgba[0]) == 3, "Renderer state must contain 3 vertices");
+		static_assert(sizeof(state->color_rgba) / sizeof(state->color_rgba[0]) == 3, "Renderer state must contain 3 vertices.");
 		int result = 0;
 		for (int vertex = 0; vertex < 3; ++vertex)
 		{
@@ -100,6 +151,30 @@ static void fragment_shader(void *user_state, int x, int y, int alpha, float bar
 		int j = 5;
 	}
 
+	//
+	// Z-buffer test
+	//
+	if (state->z_buffer != NULL)
+	{
+		// Calculate the final z coordinate of the pixel being drawn first by interpolation with the
+		// barycentric coordinates.
+		float result_z = 0;
+		static_assert(sizeof(state->vertices) / sizeof(state->vertices[0]) == 3, "Renderer state must contain 3 vertices.");
+		result_z = state->vertices[0].z * bary1 + state->vertices[1].z * bary2 + state->vertices[2].z * bary3;
+		// 0 is the new INT_MAX 
+		// TODO fix this for real though >.>
+		result_z -= 10000;
+		// The actual test
+		int z_buffer_index = y * state->surface->w + x;
+		// TODO we can reduce z-fighting issues by adding a small epsilon
+		if (result_z >= state->z_buffer->data[z_buffer_index])
+		{
+			// Discard fragment - z buffer test failed
+			return;
+		}
+		state->z_buffer->data[z_buffer_index] = result_z;
+	}
+
 	int offset = y * surface->pitch + x * surface->format->BytesPerPixel;
 	uint32_t *pixel = (uint32_t *)((char *)surface->pixels + offset);
 	// TODO: Implement alpha compositing. HA!
@@ -113,7 +188,6 @@ static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
 	Software_Renderer_Context context;
 	context.fragment_shader_user_state = &state;
 	context.fragment_shader = fragment_shader;
-
 
 	for (auto it = lines->begin(); it != lines->end(); ++it)
 	{
@@ -131,6 +205,7 @@ static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
 	state.color_rgba[0] = 0xffff00ff;
 	state.color_rgba[1] = 0xffffff00;
 	state.color_rgba[2] = 0x8000ffff;
+	
 	fill_triangle(&context, 2.0f, 1.0f, 25.0f, 2.0f, 3.0f, 14.0f);
 }
 
@@ -189,20 +264,20 @@ int main(int argc, char **argv)
 
 
 	Model octahedron;
-	octahedron.vertices.push_back(Vec3f(-1, 0, 0));
-	octahedron.vertices.push_back(Vec3f(+1, 0, 0));
 	octahedron.vertices.push_back(Vec3f(0, -1, 0));
 	octahedron.vertices.push_back(Vec3f(0, +1, 0));
+	octahedron.vertices.push_back(Vec3f(-1, 0, 0));
+	octahedron.vertices.push_back(Vec3f(+1, 0, 0));
 	octahedron.vertices.push_back(Vec3f(0, 0, -1));
 	octahedron.vertices.push_back(Vec3f(0, 0, +1));
-	octahedron.faces.push_back(Face(0, 2, 3));
+	octahedron.faces.push_back(Face(0, 2, 4));
+	octahedron.faces.push_back(Face(0, 2, 5));
 	octahedron.faces.push_back(Face(0, 3, 4));
-	octahedron.faces.push_back(Face(0, 4, 5));
-	octahedron.faces.push_back(Face(0, 5, 2));
-	octahedron.faces.push_back(Face(1, 2, 3));
+	octahedron.faces.push_back(Face(0, 3, 5));
+	octahedron.faces.push_back(Face(1, 2, 4));
+	octahedron.faces.push_back(Face(1, 2, 5));
 	octahedron.faces.push_back(Face(1, 3, 4));
-	octahedron.faces.push_back(Face(1, 4, 5));
-	octahedron.faces.push_back(Face(1, 5, 2));
+	octahedron.faces.push_back(Face(1, 3, 5));
 
 	vector<Line> lines;
 	lines.push_back(Line(2.5f, 2.5f, 4.5f, 6.5f));
@@ -243,6 +318,8 @@ int main(int argc, char **argv)
 		{
 			Renderer_State state;
 			state.surface = big_surface;
+			Buffer<float> z_buffer(state.surface->w * state.surface->h);
+			state.z_buffer = &z_buffer;
 			Software_Renderer_Context context;
 			context.fragment_shader_user_state = &state;
 			context.fragment_shader = fragment_shader;
@@ -250,18 +327,16 @@ int main(int argc, char **argv)
 			for (auto &face : octahedron.faces)
 			{
 				static_assert(sizeof(face.vertices) / sizeof(face.vertices[0]) == 3, "Need 3 vertices per face");
-				Vec3f tmp_vertices[3];
 
 				for (int i = 0; i < 3; ++i)
 				{
-					// They start indexing at 1, wtf.
 					int vertex_index = face.vertices[i];
-					tmp_vertices[i] = octahedron.vertices[vertex_index];
+					state.vertices[i] = octahedron.vertices[vertex_index];
 					// Some color based on the vertex index:
 					state.color_rgba[i] = 0xff000000 |
-						(vertex_index & 1) * 255 |
-						((vertex_index & 2) * 255) << 8 |
-						((vertex_index & 4) * 255) << 16;
+						(((vertex_index >> 0) & 1) * 255) |
+						(((vertex_index >> 1) & 1) * 255) << 8 |
+						(((vertex_index >> 2) & 1) * 255) << 16;
 				}
 
 				// Projection + Viewport Transform
@@ -269,11 +344,12 @@ int main(int argc, char **argv)
 				// TODO implement vertex shading in the first place :/
 				for (int i = 0; i < 3; ++i)
 				{
-					tmp_vertices[i].x = tmp_vertices[i].x * 200.0f + window_x / 2;
-					tmp_vertices[i].y = tmp_vertices[i].y * 200.0f + window_y / 2;
+					state.vertices[i].x = state.vertices[i].x * 200.0f + window_x / 2;
+					state.vertices[i].y = state.vertices[i].y * 200.0f + window_y / 2;
 				}
 
-				fill_triangle(&context, tmp_vertices[0].x, tmp_vertices[0].y, tmp_vertices[1].x, tmp_vertices[1].y, tmp_vertices[2].x, tmp_vertices[2].y);
+				
+				fill_triangle(&context, state.vertices[0].x, state.vertices[0].y, state.vertices[1].x, state.vertices[1].y, state.vertices[2].x, state.vertices[2].y);
 			}
 
 			iterations += 1;
