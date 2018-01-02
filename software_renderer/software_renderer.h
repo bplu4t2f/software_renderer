@@ -377,10 +377,10 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_diamond_exit(S
 // Xiaolin Wu's anti-aliased line rasterization algorithm.
 // This one is actually simpler than the other ones because endpoints don't need to be treated specially.
 // However, it does not support width.
-// extend_endpoints extends both endpoints by 0.5 in the major direction. This makes it so that if you
-// draw from exact pixel center to exact pixel center, the endpoints are rasterized at full opacity as opposed
-// to half opacity. This makes rendering certain primitives easier (non-standard extension).
-SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Software_Renderer_Context *context, float x1, float y1, float x2, float y2, bool extend_endpoints)
+// extend_endpoint_coverage virtually extends the alpha coverage of the endpoints by 0.5 (clamped to 1). This makes it so that if you
+// draw from exact pixel center to exact pixel center, the endpoints are rasterized at full opacity as opposed to half opacity. This
+// makes rendering pixel perfect horizontal, vertical and diagonal lines easier, but doesn't really have much use otherwise.
+SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Software_Renderer_Context *context, float x1, float y1, float x2, float y2, bool extend_endpoint_coverage)
 #ifdef SOFTWARE_RENDERER_IMPLEMENTATIONS
 {
 	float dx = x2 - x1;
@@ -399,44 +399,51 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 	// ignore start and end point for now
 	float x_per_y_step = dx / dy * y_step;
 
-	if (extend_endpoints)
-	{
-		y1 -= 0.5f * y_step;
-		y2 += 0.5f * y_step;
-		x1 -= 0.5f * x_per_y_step;
-		x2 += 0.5f * x_per_y_step;
-		// We don't need to recalculate dx and dy because their absolute values are irrelevant at this point.
-		// In fact, if we recalculate dx and dy, the interpolation would work differently. Without recalculating,
-		// it saturates at the original endpoints.
-		// We don't need to recalculate x_per_y_step because that shouldn't change (unless this is bugged).s
-	}
-
 	int start_point_y = (int)y1;
 	int end_point_y = (int)y2;
 
-	float start_point_y_distance_to_outgoing_edge = y1 - start_point_y;
+	// Coverage of the start and end points in the major direction.
+	// This is needed to calculate the final alpha values of the endpoints.
+	// If the endpoints are only partially covered
+	float start_point_coverage = y1 - start_point_y;
 	if (dy > 0)
 	{
-		start_point_y_distance_to_outgoing_edge = 1 - start_point_y_distance_to_outgoing_edge;
+		start_point_coverage = 1.0f - start_point_coverage;
 	}
-	float end_point_y_distance_to_outgoing_edge = y2 - end_point_y;
+	float end_point_coverage = y2 - end_point_y;
 	if (dy < 0)
 	{
-		end_point_y_distance_to_outgoing_edge = 1 - end_point_y_distance_to_outgoing_edge;
+		end_point_coverage = 1.0f - end_point_coverage;
 	}
+	if (extend_endpoint_coverage)
+	{
+		start_point_coverage = min(1.0f, start_point_coverage + 0.5f);
+		end_point_coverage = min(1.0f, end_point_coverage + 0.5f);
+	}
+
 	// We basically offset the entire line 0.5 to the left, that makes everything easier.
 	// Because now we know we need to consider the (int)x pixel, and the (int)x + 1 pixel.
 	// Before the transformation, we needed to consider the fractional part of x, and decide depending on
 	// whether it's > 0.5 or not if we need to also consider the pixel to the right or left to it.
-	float interp_x_at_center_y = x_per_y_step * (start_point_y_distance_to_outgoing_edge - 0.5f) + x1 - 0.5f;
+	float x_accumulator = (((float)start_point_y + 0.5f) - y1) * x_per_y_step + x1 - 0.5f;
+
+	// Blend ratio - for blending colors if the first and second endpoint have different colors.
+	// The blend ratio goes from about 0 to 1. Not exactly because (1) the line may start after
+	// the end point (i.e. the line stops less than halfway into the pixel). In that case, the color at
+	// the extrapolated pixel center is technically more intense than the vertex end.
+	// Another possibility is extend_endpoints, which has a similar effect on the extended parts of the line.
+	// Unfortunately this means that we need clampf in each iteration of the loop.
+	float blend_ratio_accumulator = (((float)start_point_y + 0.5f) - y1) / dy;
+	float blend_ratio_per_y_step = y_step / dy;
+
 	// Because we need to include the end point in the iterations
 	int iteration_end = end_point_y + y_step;
 	for (int y = start_point_y; y != iteration_end; y += y_step)
 	{
 		// This is the x coordinate of the left pixel of a pair that is next to each other and is affected
 		// by the line.
-		int x = (int)interp_x_at_center_y;
-		float fractional_part = interp_x_at_center_y - x;
+		int x = (int)x_accumulator;
+		float fractional_part = x_accumulator - x;
 		// If the fractional part is very low, that means the line is going pretty much dead center through this pixel,
 		// leaving little for the pixel to the right.
 		// As the fractional part increases, this pixel loses intensity and the pixel to the right gains intensity.
@@ -446,22 +453,28 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_xiaolin_wu(Sof
 		// End points may have partial alpha based on their total coverage in the major direction.
 		if (y == start_point_y)
 		{
-			alpha_l *= start_point_y_distance_to_outgoing_edge;
-			alpha_r *= start_point_y_distance_to_outgoing_edge;
+			alpha_l *= start_point_coverage;
+			alpha_r *= start_point_coverage;
 		}
 		else if (y == end_point_y)
 		{
-			alpha_l *= end_point_y_distance_to_outgoing_edge;
-			alpha_r *= end_point_y_distance_to_outgoing_edge;
+			alpha_l *= end_point_coverage;
+			alpha_r *= end_point_coverage;
 		}
 
+		float blend_ratio = clampf(blend_ratio_accumulator);
 
-		// TODO optimize blend ratio - it was an afterthought...
-		float blend_ratio = clampf((((float)y + 0.5f) - y1) / dy);
+		if (alpha_l != 0)
+		{
+			set_pixel(context, x + 0, y, alpha_l * 255, !y_major, blend_ratio);
+		}
+		if (alpha_r != 0)
+		{
+			set_pixel(context, x + 1, y, alpha_r * 255, !y_major, blend_ratio);
+		}
 
-		set_pixel(context, x + 0, y, alpha_l * 255, !y_major, blend_ratio);
-		set_pixel(context, x + 1, y, alpha_r * 255, !y_major, blend_ratio);
-		interp_x_at_center_y += x_per_y_step;
+		blend_ratio_accumulator += blend_ratio_per_y_step;
+		x_accumulator += x_per_y_step;
 	}
 }
 #else
@@ -506,6 +519,9 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		x2 -= offset;
 	}
 
+	//
+	// Start point
+	//
 	// Start point is only drawn if it's in its diamond, or above (if line is going top to bottom).
 	int start_pixel_x = (int)x1;
 	int start_pixel_y = (int)y1;
@@ -537,13 +553,18 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		}
 		if (draw)
 		{
+			float center_y = start_pixel_y + 0.5f;
+			float blend_ratio = clampf((center_y - y1) / dy);
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, start_pixel_x + i, start_pixel_y, 255, !y_major, 1.0f /*too lazy*/);
+				set_pixel(context, start_pixel_x + i, start_pixel_y, 255, !y_major, blend_ratio);
 			}
 		}
 	}
 
+	//
+	// End point
+	//
 	// End point is only drawn if it's below (if line is going top to bottom), but not in its diamond.
 	int end_pixel_x = (int)x2;
 	int end_pixel_y = (int)y2;
@@ -569,9 +590,11 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 		}
 		if (draw)
 		{
+			float center_y = end_pixel_y + 0.5f;
+			float blend_ratio = clampf((center_y - y1) / dy);
 			for (int i = 0; i < width; ++i)
 			{
-				set_pixel(context, end_pixel_x + i, end_pixel_y, 255, !y_major, 1.0f /*too lazy*/);
+				set_pixel(context, end_pixel_x + i, end_pixel_y, 255, !y_major, blend_ratio);
 			}
 		}
 	}
@@ -585,13 +608,18 @@ SOFTWARE_RENDERER_API void SOFTWARE_RENDERER_ENTRY rasterize_line_bresenham(Soft
 	x_per_y *= y_step;
 	// Prepare x-coordinate of the first point of the main loop below:
 	float interp_x_position_at_vertical_center = x_per_y * (start_point_y_distance_to_outgoing_edge + 0.5f) + x1;
+
+	float blend_ratio_accumulator = (((float)(start_pixel_y + y_step) + 0.5f) - y1) / dy;
+	float blend_ratio_per_y_step = y_step / dy;
+
 	for (int y = start_pixel_y + y_step; y != end_pixel_y; y += y_step)
 	{
 		int x = (int)interp_x_position_at_vertical_center;
 		for (int i = 0; i < width; ++i)
 		{
-			set_pixel(context, x + i, y, 255, !y_major, 1.0f /*too lazy*/);
+			set_pixel(context, x + i, y, 255, !y_major, blend_ratio_accumulator);
 		}
+		blend_ratio_accumulator += blend_ratio_per_y_step;
 		interp_x_position_at_vertical_center += x_per_y;
 	}
 }

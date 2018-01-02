@@ -189,24 +189,25 @@ static void draw_scene(SDL_Surface *surface, vector<Line> *lines)
 	context.fragment_shader_user_state = &state;
 	context.fragment_shader = fragment_shader;
 
-	for (auto it = lines->begin(); it != lines->end(); ++it)
-	{
-		state.color_rgba[0] = 0xffffffff;
-		state.color_rgba[1] = 0xffffffff;
-		rasterize_line_diamond_exit(&context, it->x1, it->y1, it->x2, it->y2, 2);
-		state.color_rgba[1] = 0xff00ffff;
-		rasterize_line_bresenham(&context, it->x1, it->y1, it->x2, it->y2, 1);
-		state.color_rgba[0] = 0xffff0000;
-		state.color_rgba[1] = 0xffffff00;
-		rasterize_line_xiaolin_wu(&context, it->x1, it->y1, it->x2, it->y2, true);
-	}
-
 	// Jelly Triangle.
 	state.color_rgba[0] = 0xffff00ff;
 	state.color_rgba[1] = 0xffffff00;
 	state.color_rgba[2] = 0x8000ffff;
-	
 	fill_triangle(&context, 2.0f, 1.0f, 25.0f, 2.0f, 3.0f, 14.0f);
+
+	for (auto it = lines->begin(); it != lines->end(); ++it)
+	{
+		state.color_rgba[0] = 0xffffffff;
+		//state.color_rgba[1] = 0xffffffff;
+		//rasterize_line_diamond_exit(&context, it->x1, it->y1, it->x2, it->y2, 2);
+		state.color_rgba[1] = 0xff00ffff;
+		rasterize_line_bresenham(&context, it->x1, it->y1, it->x2, it->y2, 1);
+		state.color_rgba[0] = 0xffff0000;
+		state.color_rgba[1] = 0xffffff00;
+		rasterize_line_xiaolin_wu(&context, it->x1, it->y1, it->x2, it->y2, false);
+		//rasterize_line_xiaolin_wu(&context, it->x1, it->y1 + 1, it->x2, it->y2 + 1, true);
+		//rasterize_line_xiaolin_wu(&context, it->x1 - 0.5f, it->y1 + 2, it->x2 + 0.5f, it->y2 + 2, false);
+	}
 }
 
 int main(int argc, char **argv)
@@ -290,6 +291,7 @@ int main(int argc, char **argv)
 	lines.push_back(Line(5.5f, 15.5f, 20.5f, 16.5f));
 	lines.push_back(Line(2.5f, 20.5f, 7.5f, 20.5f));
 	lines.push_back(Line(25.5f, 10.5f, 25.5f, 15.5f));
+	lines.push_back(Line(25.5f, 7.5f, 32.5f, 14.5f));
 
 	{
 		uint32_t before = SDL_GetTicks();
